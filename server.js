@@ -1,20 +1,15 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-app.use(cors({
-    origin: '*' 
-}));
 const { Pool } = require('pg');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const PORT = process.env.PORT || 3001; 
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// 🛡️ SECURITY: Allow frontend to talk to backend
+app.use(cors({ origin: '*' }));
 
-app.use(cors());
 // 🛡️ UPGRADE: Increase payload limit to 50mb so large webcam photos don't crash the server!
 app.use(express.json({ limit: '50mb' })); 
 
@@ -53,7 +48,7 @@ const initializeDatabase = async () => {
         `);
         console.log("✅ Database tables verified.");
     } catch (err) {
-        console.error("❌ Error initializing database:", err);
+        console.error("❌ Error initializing database (This is expected if no Postgres URL is provided):", err.message);
     }
 };
 
@@ -109,16 +104,16 @@ app.post('/api/generate-resume', async (req, res) => {
               "education": { "degree": "...", "school": "..." },
               "experience": [ { "company": "...", "title": "...", "dates": "...", "roleOverview": "...", "metrics": ["..."] } ],
               "coaching": {
-  "suggestedRoles": ["Role 1", "Role 2"],
-  "skillGaps": [
-    {
-      "skill": "Name of the skill",
-      "reason": "Why they need it",
-      "freeResource": "Specific free course or certification name",
-      "paidResource": "Specific premium industry certification name"
-    }
-  ]
-}
+                "suggestedRoles": ["Role 1", "Role 2"],
+                "skillGaps": [
+                  {
+                    "skill": "Name of the skill",
+                    "reason": "Why they need it",
+                    "freeResource": "Specific free course or certification name",
+                    "paidResource": "Specific premium industry certification name"
+                  }
+                ]
+              }
             }
         `;
 
@@ -142,17 +137,23 @@ app.post('/api/generate-resume', async (req, res) => {
         const aiSummary = result.response.text();
         console.log("✨ Gemini has finished writing!");
 
-        // Save to Database
-        const userInsert = await pool.query(
-            `INSERT INTO users (name, email, phone) VALUES ($1, $2, $3) RETURNING id`,
-            [userData.baseline?.name, userData.baseline?.email, userData.baseline?.phone]
-        );
-        const newUserId = userInsert.rows[0].id;
-
-        await pool.query(
-            `INSERT INTO resumes (user_id, target_industry, core_strength, final_ai_summary) VALUES ($1, $2, $3, $4)`,
-            [newUserId, userData.objective?.targetIndustry, userData.objective?.coreStrength, aiSummary]
-        );
+        // Safely attempt Database Save
+        try {
+            if (process.env.DATABASE_URL) {
+                const userInsert = await pool.query(
+                    `INSERT INTO users (name, email, phone) VALUES ($1, $2, $3) RETURNING id`,
+                    [userData.baseline?.name, userData.baseline?.email, userData.baseline?.phone]
+                );
+                const newUserId = userInsert.rows[0].id;
+    
+                await pool.query(
+                    `INSERT INTO resumes (user_id, target_industry, core_strength, final_ai_summary) VALUES ($1, $2, $3, $4)`,
+                    [newUserId, userData.objective?.targetIndustry, userData.objective?.coreStrength, aiSummary]
+                );
+            }
+        } catch (dbError) {
+            console.log("⚠️ DB Save skipped or failed, but AI generated successfully.", dbError.message);
+        }
 
         res.json({ success: true, resume: aiSummary });
 
@@ -162,7 +163,8 @@ app.post('/api/generate-resume', async (req, res) => {
     }
 });
 
+// 🔥 THE ONLY APP.LISTEN NEEDED!
 app.listen(PORT, async () => {
-    console.log(`🚀 Secure backend running on http://localhost:${PORT}`);
+    console.log(`🚀 Secure backend running on port ${PORT}`);
     await initializeDatabase();
 });
