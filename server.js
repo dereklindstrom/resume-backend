@@ -51,51 +51,57 @@ const initializeDatabase = async () => {
         console.error("❌ Error initializing database (This is expected if no Postgres URL is provided):", err.message);
     }
 };
-
 app.post('/api/generate-resume', async (req, res) => {
     try {
         const userData = req.body;
         console.log(`🔥 Processing real AI generation for: ${userData.baseline?.name || "User"}`);
 
-        // 🛡️ UPGRADE: Safely extract data so Node never crashes if a field is empty
-        const edu = userData.experienceDetails?.eduDetails || {};
+        // 🛡️ FIX 1: Safely extract education as an ARRAY and grab the first item
+        const eduArray = userData.experienceDetails?.eduDetails || [];
+        const edu = eduArray.length > 0 ? eduArray[0] : {}; 
         const showEdu = userData.experienceDetails?.showEdu || false;
+        
         const workHistory = userData.experienceDetails?.workHistory || [];
         
         const educationBlock = showEdu 
             ? `Degree: ${edu.degree || 'N/A'}\nSchool: ${edu.school || 'N/A'}` 
             : "No education listed.";
 
-        const workHistoryBlock = workHistory.map(job => 
+        const workHistoryBlock = workHistory.length > 0 ? workHistory.map(job => 
             `Company: ${job.company}\nTitle: ${job.jobTitle}\nDates: ${job.startDate} to ${job.endDate}\nResponsibilities: ${job.responsibilities}\nAchievements: ${job.achievements}`
-        ).join('\n\n--- NEXT ROLE ---\n\n');
+        ).join('\n\n--- NEXT ROLE ---\n\n') : "No work history provided.";
 
-        const confirmedSkillsList = userData.objective?.confirmedSkills?.join(", ") || "General Skills";
+        // Safely extract skills, defaulting to general terms if empty
+        const confirmedSkillsList = userData.objective?.confirmedSkills?.join(", ") || "Leadership, Management, Operations";
 
         const prompt = `
             You are an elite, executive resume writer and career coach.
             
             CANDIDATE INFO:
-            - Name: ${userData.baseline?.name || ""}
-            - Target Industry: ${userData.objective?.targetIndustry || ""}
-            - Specific Target Role: ${userData.objective?.targetRole || ""}
+            - Name: ${userData.baseline?.name || "Candidate"}
+            - Target Industry: ${userData.objective?.targetIndustry || "General Business"}
+            - Specific Target Role: ${userData.objective?.targetRole || "Leadership"}
 
             WORK HISTORY:
             ${workHistoryBlock}
 
             BEHAVIORAL ACHIEVEMENTS:
-            - Story 1 (at ${userData.stories?.q1Job}): ${userData.stories?.q1Text}
-            - Story 2 (at ${userData.stories?.q2Job}): ${userData.stories?.q2Text}
-            - Story 3 (at ${userData.stories?.q3Job}): ${userData.stories?.q3Text}
+            - Story 1: ${userData.stories?.q1Text || "None provided"}
+            - Story 2: ${userData.stories?.q2Text || "None provided"}
+            - Story 3: ${userData.stories?.q3Text || "None provided"}
+
+            EDUCATION:
+            ${educationBlock}
 
             INSTRUCTIONS:
             1. Write a 3-sentence professional summary positioning the candidate for the Target Role.
             2. For "skills", ONLY use: [${confirmedSkillsList}].
-            3. For "experience", write a 2-sentence "roleOverview" highlighting leadership.
-            4. Extract the Behavioral Achievements into the "metrics" array for the specific company.
-            5. CRITICAL INSTRUCTION: You MUST generate a "coaching" object. 
-            6. In "coaching", provide EXACTLY 3 "suggestedRoles" based on their history.
-            7. In "coaching", provide EXACTLY 2 "skillGaps" they need to learn to get the Target Role, including a specific "resource" (e.g., Google Data Analytics Certificate, PMP Certification, etc.).
+            3. CRITICAL: You MUST create an entry in the "experience" array for EVERY single job listed in the WORK HISTORY section above. Do not skip any jobs.
+            4. For each job in "experience", write a 2-sentence "roleOverview" highlighting leadership.
+            5. For each job in "experience", create a "metrics" array. Convert the candidate's raw "Responsibilities" and "Achievements" into powerful, action-verb bullet points.
+            6. CRITICAL INSTRUCTION: You MUST generate a "coaching" object. 
+            7. In "coaching", provide EXACTLY 3 "suggestedRoles" based on their history.
+            8. In "coaching", provide EXACTLY 2 "skillGaps" they need to learn to get the Target Role, including a specific "resource".
 
             YOU MUST RETURN VALID JSON MATCHING THIS EXACT SCHEMA:
             {
@@ -104,7 +110,7 @@ app.post('/api/generate-resume', async (req, res) => {
               "education": { "degree": "...", "school": "..." },
               "experience": [ { "company": "...", "title": "...", "dates": "...", "roleOverview": "...", "metrics": ["..."] } ],
               "coaching": {
-                "suggestedRoles": ["Role 1", "Role 2"],
+                "suggestedRoles": ["Role 1", "Role 2", "Role 3"],
                 "skillGaps": [
                   {
                     "skill": "Name of the skill",
