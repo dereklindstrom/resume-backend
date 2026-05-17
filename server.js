@@ -53,7 +53,7 @@ const initializeDatabase = async () => {
 };
 app.post('/api/generate-resume', async (req, res) => {
     try {
-        const userData = req.body;
+        const userData = req.body.customPrompt;
         console.log(`🔥 Processing real AI generation for: ${userData.baseline?.name || "User"}`);
 
         // 🛡️ FIX 1: Safely extract education as an ARRAY and grab the first item
