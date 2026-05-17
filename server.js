@@ -51,12 +51,19 @@ const initializeDatabase = async () => {
         console.error("❌ Error initializing database (This is expected if no Postgres URL is provided):", err.message);
     }
 };
+
 app.post('/api/generate-resume', async (req, res) => {
     try {
-        const userData = req.body.customPrompt;
-        console.log(`🔥 Processing real AI generation for: ${userData.baseline?.name || "User"}`);
+        // 🌟 THE FIX: Correctly unpack the new 3-part package from the frontend!
+        const { userData, customPrompt, tier, photo } = req.body;
 
-        // 🛡️ FIX 1: Safely extract education as an ARRAY and grab the first item
+        if (!userData) {
+            throw new Error("Missing userData in request body.");
+        }
+
+        console.log(`🔥 Processing AI generation for: ${userData.baseline?.name || "User"} | Tier: ${tier || 'free'}`);
+
+        // Safely extract education
         const eduArray = userData.experienceDetails?.eduDetails || [];
         const edu = eduArray.length > 0 ? eduArray[0] : {}; 
         const showEdu = userData.experienceDetails?.showEdu || false;
@@ -68,10 +75,9 @@ app.post('/api/generate-resume', async (req, res) => {
             : "No education listed.";
 
         const workHistoryBlock = workHistory.length > 0 ? workHistory.map(job => 
-            `Company: ${job.company}\nTitle: ${job.jobTitle}\nDates: ${job.startDate} to ${job.endDate}\nResponsibilities: ${job.responsibilities}\nAchievements: ${job.achievements}`
+            `Company: ${job.company}\nTitle: ${job.jobTitle || job.title}\nDates: ${job.dates}\nResponsibilities: ${job.description || job.responsibilities}\nAchievements: ${job.achievements || "N/A"}`
         ).join('\n\n--- NEXT ROLE ---\n\n') : "No work history provided.";
 
-        // Safely extract skills, defaulting to general terms if empty
         const confirmedSkillsList = userData.objective?.confirmedSkills?.join(", ") || "Leadership, Management, Operations";
 
         const prompt = `
@@ -103,6 +109,9 @@ app.post('/api/generate-resume', async (req, res) => {
             7. In "coaching", provide EXACTLY 3 "suggestedRoles" based on their history.
             8. In "coaching", provide EXACTLY 2 "skillGaps" they need to learn to get the Target Role, including a specific "resource".
 
+            🌟 TIER-SPECIFIC AI RULES (CRITICAL):
+            ${customPrompt || "Format professionally and cleanly."}
+
             YOU MUST RETURN VALID JSON MATCHING THIS EXACT SCHEMA:
             {
               "summary": "...",
@@ -125,25 +134,21 @@ app.post('/api/generate-resume', async (req, res) => {
 
         console.log("🧠 Asking Gemini to write the resume...");
         
-        // 1. Start with the text prompt
         const parts = [prompt];
 
-        // 2. Safely check if a photo came from the frontend, and format it for Gemini
-        if (req.body.photo) {
+        if (photo) {
             parts.push({
                 inlineData: {
-                    data: req.body.photo.replace(/^data:image\/\w+;base64,/, ""),
+                    data: photo.replace(/^data:image\/\w+;base64,/, ""),
                     mimeType: "image/jpeg"
                 }
             });
         }
 
-        // 3. Hand the package to the AI
         const result = await aiModel.generateContent(parts);
         const aiSummary = result.response.text();
         console.log("✨ Gemini has finished writing!");
 
-        // Safely attempt Database Save
         try {
             if (process.env.DATABASE_URL) {
                 const userInsert = await pool.query(
@@ -169,7 +174,6 @@ app.post('/api/generate-resume', async (req, res) => {
     }
 });
 
-// 🔥 THE ONLY APP.LISTEN NEEDED!
 app.listen(PORT, async () => {
     console.log(`🚀 Secure backend running on port ${PORT}`);
     await initializeDatabase();
